@@ -26,7 +26,19 @@ PROCESSED_DIR = Path("data/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 # Manual fixes for known mismatches (normalized form)
+# CITY_MAPPING = {
+#     "las vegas-henderson-paradise": "las vegas-henderson-north las vegas",
+#     "denver-aurora-lakewood": "denver-aurora-centennial",
+#     "houston-the woodlands-sugar land": "houston-pasadena-the woodlands",
+#     "austin-round rock-georgetown": "austin-round rock-san marcos",
+#     "miami-fort lauderdale-pompano beach": "miami-fort lauderdale-west palm beach",
+#     "san francisco-oakland-berkeley": "san francisco-oakland-fremont",
+#     "dc_metro": "washington-arlington-alexandria",
+#     "atlanta-sandy springs-alpharetta": "atlanta-sandy springs-roswell",
+# }
+
 CITY_MAPPING = {
+    # Original ones
     "las vegas-henderson-paradise": "las vegas-henderson-north las vegas",
     "denver-aurora-lakewood": "denver-aurora-centennial",
     "houston-the woodlands-sugar land": "houston-pasadena-the woodlands",
@@ -35,8 +47,32 @@ CITY_MAPPING = {
     "san francisco-oakland-berkeley": "san francisco-oakland-fremont",
     "dc_metro": "washington-arlington-alexandria",
     "atlanta-sandy springs-alpharetta": "atlanta-sandy springs-roswell",
-}
 
+    # Added: top missing + others, in normalized form
+    "new york-newark-jersey city": "new york-newark-jersey city",
+    "los angeles-long beach-anaheim": "los angeles-long beach-anaheim",
+    "chicago-naperville-elgin": "chicago-naperville-elgin",
+    "dallas-fort worth-arlington": "dallas-fort worth-arlington",
+    "washington-arlington-alexandria": "washington-arlington-alexandria",
+    "philadelphia-camden-wilmington": "philadelphia-camden-wilmington",
+    "miami-fort lauderdale-west palm beach": "miami-fort lauderdale-west palm beach",
+    "phoenix-mesa-chandler": "phoenix-mesa-chandler",
+    "boston-cambridge-newton": "boston-cambridge-newton",
+    "riverside-san bernardino-ontario": "riverside-san bernardino-ontario",
+    "detroit-warren-dearborn": "detroit-warren-dearborn",
+    "seattle-tacoma-bellevue": "seattle-tacoma-bellevue",
+    "tampa-st. petersburg-clearwater": "tampa-st. petersburg-clearwater",
+    "san diego-chula vista-carlsbad": "san diego-chula vista-carlsbad",
+    "minneapolis-st. paul-bloomington": "minneapolis-st. paul-bloomington",
+    "st. louis": "st. louis",
+    "pittsburgh": "pittsburgh",
+    "portland-vancouver-hillsboro": "portland-vancouver-hillsboro",
+    "orlando-kissimmee-sanford": "orlando-kissimmee-sanford",
+    "sacramento-roseville-folsom": "sacramento-roseville-folsom",
+    "san antonio-new braunfels": "san antonio-new braunfels",
+    "charlotte-concord-gastonia": "charlotte-concord-gastonia",
+    "cincinnati": "cincinnati",
+}
 
 def normalize_city(s: str) -> str:
     """Lowercase, strip, unify dashes. Safe for NA."""
@@ -48,7 +84,7 @@ def normalize_city(s: str) -> str:
     return s
 
 
-def clean_and_merge(df: pd.DataFrame, metros_path: str | None = "data/raw/usmetros.csv") -> pd.DataFrame:
+def clean_and_merge(df: pd.DataFrame, metros_path: str | None = "data/raw/usmetros_raw.csv") -> pd.DataFrame:
     """
     Normalize city names, optionally merge lat/lng from metros dataset.
     If `city_full` column or `metros_path` is missing, skip gracefully.
@@ -118,7 +154,7 @@ def preprocess_split(
     split: str,
     raw_dir: Path | str = RAW_DIR,
     processed_dir: Path | str = PROCESSED_DIR,
-    metros_path: str | None = "data/raw/usmetros.csv",
+    metros_path: str | None = "data/raw/usmetros_raw.csv",
 ) -> pd.DataFrame:
     """Run preprocessing for a split and save to processed_dir."""
     raw_dir = Path(raw_dir)
@@ -142,7 +178,7 @@ def run_preprocess(
     splits: tuple[str, ...] = ("train", "eval", "holdout"),
     raw_dir: Path | str = RAW_DIR,
     processed_dir: Path | str = PROCESSED_DIR,
-    metros_path: str | None = "data/raw/usmetros.csv",
+    metros_path: str | None = "data/raw/usmetros_raw.csv",
 ):
     for s in splits:
         preprocess_split(s, raw_dir=raw_dir, processed_dir=processed_dir, metros_path=metros_path)

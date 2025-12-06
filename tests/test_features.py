@@ -10,6 +10,9 @@ from src.feature_pipeline.feature_engineering import (
     add_date_features, frequency_encode, target_encode, drop_unused_columns, run_feature_engineering
 )
 
+#set PYTHONPATH=%PYTHONPATH%;W:\anaconda\projectE2E\Regression_ML_EndtoEnd
+#pytest tests\test_features.py
+ 
 # =========================
 # load.py – unit test
 # =========================
