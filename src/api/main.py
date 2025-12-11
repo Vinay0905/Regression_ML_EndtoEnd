@@ -88,6 +88,8 @@ def predict_batch(data: List[dict]):
 from src.batch.run_monthly import run_monthly_predictions
 
 # Trigger a monthly batch job via API.
+#THIS IS NOT PART OF THE PROJECT BUT AN IDEA BURIED .
+
 @app.post("/run_batch")
 def run_batch():
     preds = run_monthly_predictions()
