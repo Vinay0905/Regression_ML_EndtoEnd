@@ -13,7 +13,7 @@ DATA_DIR = Path("data/raw")
 
 def load_and_split_data(
     # raw_path: str = "data/raw/untouched_raw_original.csv",
-    raw_path: str = "W:/anaconda/projectE2E/Regression_ML_EndtoEnd/data/raw/HouseTS_raw.csv",
+    raw_path: str = "D:/vinay_programing/PR3/Regression_ML_EndtoEnd_Updated/data/raw/HouseTS_raw.csv",
     output_dir: Path | str = DATA_DIR,
 ):
     """Load raw dataset, split into train/eval/holdout by date, and save to output_dir."""
