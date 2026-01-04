@@ -33,34 +33,41 @@ def load_from_supabase(remote_path: str, local_path: Path):
             return None
     return str(local_path)
 
-# Paths (ensure available locally by fetching from Supabase if missing)
-HOLDOUT_ENGINEERED_PATH = load_from_supabase(
-    "processed/feature_engineered_holdout.csv",
-    "data/processed/feature_engineered_holdout.csv"
-)
-HOLDOUT_META_PATH = load_from_supabase(
-    "processed/cleaning_holdout.csv",
-    "data/processed/cleaning_holdout.csv"
-)
-
 # ============================
 # Data loading
 # ============================
 @st.cache_data
 def load_data():
-    if not HOLDOUT_ENGINEERED_PATH or not HOLDOUT_META_PATH:
-        st.error("Missing data files. Ensure they are uploaded to Supabase Storage.")
+    """Fetch holdout data from Supabase and load into pandas."""
+    
+    # 1. Ensure local paths for holdout files exist via Supabase
+    engineered_local = "data/processed/feature_engineered_holdout.csv"
+    meta_local = "data/processed/cleaning_holdout.csv"
+    
+    # Download them if they don't exist
+    holdout_path = load_from_supabase("processed/feature_engineered_holdout.csv", Path(engineered_local))
+    meta_path = load_from_supabase("processed/cleaning_holdout.csv", Path(meta_local))
+
+    if not holdout_path or not meta_path:
+        st.error("❌ Critical Error: Could not download holdout files from Supabase. Check your STORAGE_BUCKET and folder paths.")
         return pd.DataFrame(), pd.DataFrame()
 
-    fe = pd.read_csv(HOLDOUT_ENGINEERED_PATH)
-    meta = pd.read_csv(HOLDOUT_META_PATH, parse_dates=["date"])[["date", "city_full"]]
+    # 2. Load the CSVs
+    try:
+        fe = pd.read_csv(holdout_path)
+        meta = pd.read_csv(meta_path, parse_dates=["date"])[["date", "city_full"]]
+    except Exception as e:
+        st.error(f"❌ Failed to read CSV files: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
+    # 3. Align data
     if len(fe) != len(meta):
         st.warning("⚠️ Engineered and meta holdout lengths differ. Aligning by index.")
         min_len = min(len(fe), len(meta))
         fe = fe.iloc[:min_len].copy()
         meta = meta.iloc[:min_len].copy()
 
+    # 4. Prepare display dataframe
     disp = pd.DataFrame(index=fe.index)
     disp["date"] = meta["date"]
     disp["region"] = meta["city_full"]

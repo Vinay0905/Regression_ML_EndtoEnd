@@ -1,6 +1,4 @@
 # Dockerfile.streamlit
-# Having Separate Dockerfiles for UI and FastAPI avoids mixing UI logic with backend logic.
-
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
@@ -10,19 +8,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 RUN pip install --no-cache-dir uv && uv sync --frozen --no-dev
 
-# Copy the app
+# Copy the app and source
 COPY . .
 
-# Cloud Run injects PORT. Default to 8501 for local/standard
+# Cloud Run injects the PORT environment variable.
+# We set a default for local testing, but the CMD will use $PORT.
 ENV PORT=8501
-ENV STREAMLIT_SERVER_PORT=8501 \
-    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_BROWSER_GATHERUSAGESTATS=false
-
-# Default API_URL (override in Cloud Run Console)
-ENV API_URL=http://localhost:8000/predict
-
 EXPOSE 8501
 
-# Start Streamlit, letting it bind to the port defined by Cloud Run ($PORT)
-ENTRYPOINT ["uv", "run", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Use shell form to allow $PORT expansion.
+# We use the python from the virtual environment directly.
+CMD .venv/bin/python -m streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true

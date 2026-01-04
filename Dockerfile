@@ -14,9 +14,9 @@ RUN uv sync --frozen --no-dev
 # Copy project files
 COPY . .
 
-# Cloud Run injects a PORT environment variable. We set a default for local testing.
+# Cloud Run injects the PORT environment variable.
 ENV PORT=8000
 EXPOSE 8000
 
-# We use shell form to allow environment variable expansion for $PORT
-CMD ["uv", "run", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use shell form to allow $PORT expansion.
+CMD .venv/bin/python -m uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
