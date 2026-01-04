@@ -1,127 +1,133 @@
-# Goal: Create a FastAPI app to serve your trained ML model into a web service that anyone 
-# (or any system) can call over HTTP.
+# Goal: Create a FastAPI app to serve your trained ML model via HTTP.
+# Now powered by Supabase for Storage (Model) and Database (Logs).
 
-from fastapi import FastAPI            # Web framework for APIs
-from pathlib import Path               # For handling file paths cleanly
-from typing import List, Dict, Any     # For type hints (clarity in endpoints)
-import pandas as pd                    # To handle incoming JSON as DataFrames
-import boto3, os                       # AWS SDK for Python + env variables
+from fastapi import FastAPI, BackgroundTasks
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+import pandas as pd
+import os
+from datetime import datetime
+import json
 
-# Import inference pipeline
+# Import custom modules
 from src.inference_pipeline.inference import predict
+from src.utils.supabase_client import get_supabase_client
 
 # ----------------------------
 # Config
 # ----------------------------
-S3_BUCKET = os.getenv("S3_BUCKET", "housing-regression-data")
-REGION = os.getenv("AWS_REGION", "eu-west-2")
-s3 = boto3.client("s3", region_name=REGION)
+# Buckets
+STORAGE_BUCKET = "housing-data"
+MODELS_PATH_REMOTE = "models/xgb_best_model.pkl"
+DATA_PATH_REMOTE = "data/processed/feature_engineered_train.csv"
 
-# Ensures your app always has the latest model/data locally, 
-# but avoids re-downloading every time it starts.
-def load_from_s3(key, local_path):
-    """Download from S3 if not already cached locally."""
-    local_path = Path(local_path)
+# Local Paths
+MODEL_PATH = Path("models/xgb_best_model.pkl")
+TRAIN_FE_PATH = Path("data/processed/feature_engineered_train.csv")
+
+# ----------------------------
+# Helpers
+# ----------------------------
+def load_from_supabase(remote_path: str, local_path: Path):
+    """Download file from Supabase Storage if not cached."""
     if not local_path.exists():
         os.makedirs(local_path.parent, exist_ok=True)
-        print(f"📥 Downloading {key} from S3…")
-        s3.download_file(S3_BUCKET, key, str(local_path))
-    return str(local_path)
+        print(f"📥 Downloading {remote_path} from Supabase Storage...")
+        
+        supabase = get_supabase_client()
+        # Download binary
+        res = supabase.storage.from_(STORAGE_BUCKET).download(remote_path)
+        
+        with open(local_path, "wb") as f:
+            f.write(res)
+        print(f"✅ Saved to {local_path}")
+    return local_path
+
+async def log_prediction_to_db(inputs: List[dict], predictions: List[float]):
+    """Asynchronously log inputs and predictions to Supabase DB."""
+    try:
+        supabase = get_supabase_client()
+        
+        # Prepare rows for insertion
+        rows = []
+        for i, pred in enumerate(predictions):
+            row = {
+                "input_data": json.dumps(inputs[i]),  # Store input JSON
+                "prediction": pred,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            rows.append(row)
+            
+        supabase.table("predictions").insert(rows).execute()
+        print(f"📝 Logged {len(rows)} predictions to Supabase.")
+        
+    except Exception as e:
+        print(f"⚠️ Failed to log to Supabase: {e}")
 
 # ----------------------------
-# Paths
+# Startup Logic
 # ----------------------------
-# Downloads model + training features from S3 if not cached.
-MODEL_PATH = Path(load_from_s3("models/xgb_best_model.pkl", "models/xgb_best_model.pkl"))
-TRAIN_FE_PATH = Path(load_from_s3("processed/feature_engineered_train.csv", "data/processed/feature_engineered_train.csv"))
+# We try to download artifacts on import, but robustly handle failures if env vars are missing during build.
+TRAIN_FEATURE_COLUMNS = None
 
-# Load expected training features for alignment
-if TRAIN_FE_PATH.exists():
-    _train_cols = pd.read_csv(TRAIN_FE_PATH, nrows=1)
-    TRAIN_FEATURE_COLUMNS = [c for c in _train_cols.columns if c != "price"]
-else:
-    TRAIN_FEATURE_COLUMNS = None
+try:
+    load_from_supabase(MODELS_PATH_REMOTE, MODEL_PATH)
+    load_from_supabase(DATA_PATH_REMOTE, TRAIN_FE_PATH)
+    
+    if TRAIN_FE_PATH.exists():
+        _train_cols = pd.read_csv(TRAIN_FE_PATH, nrows=1)
+        TRAIN_FEATURE_COLUMNS = [c for c in _train_cols.columns if c != "price"]
+except Exception as e:
+    print(f"⚠️ Startup Warning: Could not download artifacts. {e}")
 
 # ----------------------------
-# App
+# App Definition
 # ----------------------------
-# Instantiates the FastAPI app.
-app = FastAPI(title="Housing Regression API")
+app = FastAPI(title="Housing Regression API (Supabase Edition)")
 
-# / → simple landing endpoint to confirm API is alive.
 @app.get("/")
 def root():
-    return {"message": "Housing Regression API is running 🚀"}
+    return {"message": "Housing Regression API is running 🚀 (Supabase Enabled)"}
 
-# /health → checks if model exists, returns status info (like expected feature count).
 @app.get("/health")
 def health():
     status: Dict[str, Any] = {"model_path": str(MODEL_PATH)}
-    if not MODEL_PATH.exists():
-        status["status"] = "unhealthy"
-        status["error"] = "Model not found"
+    
+    # Check Model
+    if MODEL_PATH.exists():
+        status["model_status"] = "present"
     else:
-        status["status"] = "healthy"
-        if TRAIN_FEATURE_COLUMNS:
-            status["n_features_expected"] = len(TRAIN_FEATURE_COLUMNS)
+        status["model_status"] = "missing"
+
+    # Check Supabase Connection
+    try:
+        supabase = get_supabase_client()
+        # Lightweight check: List buckets
+        supabase.storage.list_buckets()
+        status["supabase_connection"] = "healthy"
+    except Exception as e:
+        status["supabase_connection"] = f"unhealthy: {str(e)}"
+
     return status
 
-# Prediction Endpoint: This is the core ML serving endpoint.
 @app.post("/predict")
-def predict_batch(data: List[dict]):
+async def predict_endpoint(data: List[dict], background_tasks: BackgroundTasks):
     if not MODEL_PATH.exists():
-        return {"error": f"Model not found at {str(MODEL_PATH)}"}
+        return {"error": "Model not found. Please ensure it is uploaded to Supabase Storage."}
 
     df = pd.DataFrame(data)
     if df.empty:
         return {"error": "No data provided"}
 
+    # Run Inference
     preds_df = predict(df, model_path=MODEL_PATH)
+    predictions_list = preds_df["predicted_price"].astype(float).tolist()
 
-    resp = {"predictions": preds_df["predicted_price"].astype(float).tolist()}
+    # Log to Supabase in background (doesn't block response)
+    background_tasks.add_task(log_prediction_to_db, data, predictions_list)
+
+    resp = {"predictions": predictions_list}
     if "actual_price" in preds_df.columns:
         resp["actuals"] = preds_df["actual_price"].astype(float).tolist()
 
     return resp
-
-# Batch runner
-from src.batch.run_monthly import run_monthly_predictions
-
-# Trigger a monthly batch job via API.
-@app.post("/run_batch")
-def run_batch():
-    preds = run_monthly_predictions()
-    return {
-        "status": "success",
-        "rows_predicted": int(len(preds)),
-        "output_dir": "data/predictions/"
-    }
-
-# Returns a preview of the most recent batch predictions.
-@app.get("/latest_predictions")
-def latest_predictions(limit: int = 5):
-    pred_dir = Path("data/predictions")
-    files = sorted(pred_dir.glob("preds_*.csv"))
-    if not files:
-        return {"error": "No predictions found"}
-
-    latest_file = files[-1]
-    df = pd.read_csv(latest_file)
-    return {
-        "file": latest_file.name,
-        "rows": int(len(df)),
-        "preview": df.head(limit).to_dict(orient="records")
-    }
-
-
-"""
-🔹 Execution Order / Module Flow
-
-1. Imports (FastAPI, pandas, boto3, your inference function).
-2. Config setup (env vars → bucket/region).
-3. S3 utility (load_from_s3).
-4. Download + load model/artifacts (MODEL_PATH, TRAIN_FE_PATH).
-5. Infer schema (TRAIN_FEATURE_COLUMNS).
-6. Create FastAPI app (app = FastAPI).
-7. Declare endpoints (/, /health, /predict, /run_batch, /latest_predictions).
-"""

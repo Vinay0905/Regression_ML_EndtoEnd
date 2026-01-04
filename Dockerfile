@@ -1,21 +1,22 @@
 # Use slim Python base image
 FROM python:3.11-slim
 
-# # Set working directory inside container
-# WORKDIR /app
+# Set working directory inside container
+WORKDIR /app
 
-# # Copy dependency files first (better caching)
-# COPY pyproject.toml uv.lock* ./
+# Copy dependency files first
+COPY pyproject.toml uv.lock* ./
 
-# # Install uv (dependency manager)
-# RUN pip install uv
-# RUN uv sync --frozen --no-dev
+# Install uv and dependencies
+RUN pip install uv
+RUN uv sync --frozen --no-dev
 
-# # Copy project files
-# COPY . .
+# Copy project files
+COPY . .
 
-# # Expose FastAPI default port
-# EXPOSE 8000
+# Cloud Run injects a PORT environment variable. We set a default for local testing.
+ENV PORT=8000
+EXPOSE 8000
 
-# # Command to run API with Uvicorn
-# CMD ["uv", "run", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# We use shell form to allow environment variable expansion for $PORT
+CMD ["uv", "run", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
