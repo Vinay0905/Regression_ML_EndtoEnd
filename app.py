@@ -2,35 +2,45 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
-import boto3, os
+import os
 from pathlib import Path
+
+# Import Supabase client utility
+from src.utils.supabase_client import get_supabase_client
 
 # ============================
 # Config
 # ============================
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000/predict")
-S3_BUCKET = os.getenv("bucket", "housing-regression-data-vinay")
-REGION = os.getenv("region", "ap-south-2")
+STORAGE_BUCKET = "housing-data"
 
-s3 = boto3.client("s3", region_name=REGION)
-
-def load_from_s3(key, local_path):
-    """Download from S3 if not already cached locally."""
+# ============================
+# Helpers
+# ============================
+def load_from_supabase(remote_path: str, local_path: Path):
+    """Download from Supabase Storage if not already cached locally."""
     local_path = Path(local_path)
     if not local_path.exists():
         os.makedirs(local_path.parent, exist_ok=True)
-        st.info(f"📥 Downloading {key} from S3…")
-        s3.download_file(S3_BUCKET, key, str(local_path))
+        try:
+            supabase = get_supabase_client()
+            res = supabase.storage.from_(STORAGE_BUCKET).download(remote_path)
+            with open(local_path, "wb") as f:
+                f.write(res)
+            st.success(f"✅ Downloaded {remote_path}")
+        except Exception as e:
+            st.error(f"❌ Failed to download {remote_path} from Supabase: {e}")
+            return None
     return str(local_path)
 
-# Paths (ensure available locally by fetching from S3 if missing)
-HOLDOUT_ENGINEERED_PATH = load_from_s3(
+# Paths (ensure available locally by fetching from Supabase if missing)
+HOLDOUT_ENGINEERED_PATH = load_from_supabase(
     "processed/feature_engineered_holdout.csv",
     "data/processed/feature_engineered_holdout.csv"
 )
-HOLDOUT_META_PATH = load_from_s3(
+HOLDOUT_META_PATH = load_from_supabase(
     "processed/cleaning_holdout.csv",
-"data/processed/cleaning_holdout.csv"
+    "data/processed/cleaning_holdout.csv"
 )
 
 # ============================
@@ -38,6 +48,10 @@ HOLDOUT_META_PATH = load_from_s3(
 # ============================
 @st.cache_data
 def load_data():
+    if not HOLDOUT_ENGINEERED_PATH or not HOLDOUT_META_PATH:
+        st.error("Missing data files. Ensure they are uploaded to Supabase Storage.")
+        return pd.DataFrame(), pd.DataFrame()
+
     fe = pd.read_csv(HOLDOUT_ENGINEERED_PATH)
     meta = pd.read_csv(HOLDOUT_META_PATH, parse_dates=["date"])[["date", "city_full"]]
 
@@ -58,9 +72,14 @@ def load_data():
 
 fe_df, disp_df = load_data()
 
+# Check if data loaded successfully
+if disp_df.empty:
+    st.stop()
+
 # ============================
 # UI
 # ============================
+st.set_page_config(page_title="Housing Prediction Dashboard", layout="wide")
 st.title("🏠 Housing Price Prediction — Holdout Explorer")
 
 years = sorted(disp_df["year"].unique())
@@ -122,36 +141,22 @@ if st.button("Show Predictions 🚀"):
             with c3:
                 st.metric("Avg % Error", f"{avg_pct_error:.2f}%")
 
-            # ============================
-            # Yearly Trend Chart
-            # ============================
+            # Yearly Trend
+            st.divider()
             if region == "All":
                 yearly_data = disp_df[disp_df["year"] == year].copy()
-                idx_all = yearly_data.index
-                payload_all = fe_df.loc[idx_all].to_dict(orient="records")
-
-                resp_all = requests.post(API_URL, json=payload_all, timeout=60)
-                resp_all.raise_for_status()
-                preds_all = resp_all.json().get("predictions", [])
-
-                yearly_data["prediction"] = pd.Series(preds_all, index=yearly_data.index).astype(float)
-
             else:
                 yearly_data = disp_df[(disp_df["year"] == year) & (disp_df["region"] == region)].copy()
-                idx_region = yearly_data.index
-                payload_region = fe_df.loc[idx_region].to_dict(orient="records")
-
-                resp_region = requests.post(API_URL, json=payload_region, timeout=60)
-                resp_region.raise_for_status()
-                preds_region = resp_region.json().get("predictions", [])
-
-                yearly_data["prediction"] = pd.Series(preds_region, index=yearly_data.index).astype(float)
-
-            # Aggregate by month
+            
+            idx_yearly = yearly_data.index
+            payload_yearly = fe_df.loc[idx_yearly].to_dict(orient="records")
+            
+            resp_yearly = requests.post(API_URL, json=payload_yearly, timeout=60)
+            resp_yearly.raise_for_status()
+            preds_yearly = resp_yearly.json().get("predictions", [])
+            
+            yearly_data["prediction"] = pd.Series(preds_yearly, index=yearly_data.index).astype(float)
             monthly_avg = yearly_data.groupby("month")[["actual_price", "prediction"]].mean().reset_index()
-
-            # Highlight selected month
-            monthly_avg["highlight"] = monthly_avg["month"].apply(lambda m: "Selected" if m == month else "Other")
 
             fig = px.line(
                 monthly_avg,
@@ -161,23 +166,15 @@ if st.button("Show Predictions 🚀"):
                 labels={"value": "Price", "month": "Month"},
                 title=f"Yearly Trend — {year}{'' if region=='All' else f' — {region}'}"
             )
-
-            # Add highlight with background shading
-            highlight_month = month
+            
             fig.add_vrect(
-                x0=highlight_month - 0.5,
-                x1=highlight_month + 0.5,
-                fillcolor="red",
-                opacity=0.1,
-                layer="below",
-                line_width=0,
+                x0=month - 0.5, x1=month + 0.5,
+                fillcolor="red", opacity=0.1, layer="below", line_width=0,
             )
-
             st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
             st.error(f"API call failed: {e}")
             st.exception(e)
-
 else:
     st.info("Choose filters and click **Show Predictions** to compute.")
