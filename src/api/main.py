@@ -19,10 +19,14 @@ from src.utils.supabase_client import get_supabase_client
 # Buckets
 STORAGE_BUCKET = "housing-data"
 MODELS_PATH_REMOTE = "models/xgb_best_model.pkl"
+FREQ_ENCODER_REMOTE = "models/freq_encoder.pkl"
+TARGET_ENCODER_REMOTE = "models/target_encoder.pkl"
 DATA_PATH_REMOTE = "data/processed/feature_engineered_train.csv"
 
 # Local Paths
 MODEL_PATH = Path("models/xgb_best_model.pkl")
+FREQ_ENCODER_PATH = Path("models/freq_encoder.pkl")
+TARGET_ENCODER_PATH = Path("models/target_encoder.pkl")
 TRAIN_FE_PATH = Path("data/processed/feature_engineered_train.csv")
 
 # ----------------------------
@@ -72,6 +76,8 @@ TRAIN_FEATURE_COLUMNS = None
 
 try:
     load_from_supabase(MODELS_PATH_REMOTE, MODEL_PATH)
+    load_from_supabase(FREQ_ENCODER_REMOTE, FREQ_ENCODER_PATH)
+    load_from_supabase(TARGET_ENCODER_REMOTE, TARGET_ENCODER_PATH)
     load_from_supabase(DATA_PATH_REMOTE, TRAIN_FE_PATH)
     
     if TRAIN_FE_PATH.exists():
@@ -120,7 +126,12 @@ async def predict_endpoint(data: List[dict], background_tasks: BackgroundTasks):
         return {"error": "No data provided"}
 
     # Run Inference
-    preds_df = predict(df, model_path=MODEL_PATH)
+    preds_df = predict(
+        df, 
+        model_path=MODEL_PATH,
+        freq_encoder_path=FREQ_ENCODER_PATH,
+        target_encoder_path=TARGET_ENCODER_PATH
+    )
     predictions_list = preds_df["predicted_price"].astype(float).tolist()
 
     # Log to Supabase in background (doesn't block response)
