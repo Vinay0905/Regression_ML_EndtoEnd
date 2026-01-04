@@ -18,77 +18,76 @@ STORAGE_BUCKET = "housing-data"
 # Helpers
 # ============================
 def load_from_supabase(remote_path: str, local_path: Path):
-    """Download from Supabase Storage if not already cached locally."""
+    """Download from Supabase Storage with fallback checks. No UI side-effects."""
     local_path = Path(local_path)
     if not local_path.exists():
         os.makedirs(local_path.parent, exist_ok=True)
+        supabase = get_supabase_client()
+        
+        # 1. Try the direct path
         try:
-            supabase = get_supabase_client()
             res = supabase.storage.from_(STORAGE_BUCKET).download(remote_path)
-            with open(local_path, "wb") as f:
-                f.write(res)
-            st.success(f"✅ Downloaded {remote_path}")
-        except Exception as e:
-            st.error(f"❌ Failed to download {remote_path} from Supabase: {e}")
-            return None
+        except Exception:
+            # 2. Try root fallback
+            filename_only = remote_path.split("/")[-1]
+            res = supabase.storage.from_(STORAGE_BUCKET).download(filename_only)
+        
+        with open(local_path, "wb") as f:
+            f.write(res)
     return str(local_path)
 
-# ============================
-# Data loading
-# ============================
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_data():
-    """Fetch holdout data from Supabase and load into pandas."""
-    
-    # 1. Ensure local paths for holdout files exist via Supabase
+    """Fetch holdout data from Supabase and load into memory once."""
     engineered_local = "data/processed/feature_engineered_holdout.csv"
     meta_local = "data/processed/cleaning_holdout.csv"
     
-    # Download them if they don't exist
+    # These calls are fast if file exists on disk
     holdout_path = load_from_supabase("processed/feature_engineered_holdout.csv", Path(engineered_local))
     meta_path = load_from_supabase("processed/cleaning_holdout.csv", Path(meta_local))
 
     if not holdout_path or not meta_path:
-        st.error("❌ Critical Error: Could not download holdout files from Supabase. Check your STORAGE_BUCKET and folder paths.")
-        return pd.DataFrame(), pd.DataFrame()
+        return None, None
 
-    # 2. Load the CSVs
-    try:
-        fe = pd.read_csv(holdout_path)
-        meta = pd.read_csv(meta_path, parse_dates=["date"])[["date", "city_full"]]
-    except Exception as e:
-        st.error(f"❌ Failed to read CSV files: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+    # Load CSVs - using simplified dtypes could save memory if needed later
+    fe = pd.read_csv(holdout_path)
+    meta = pd.read_csv(meta_path, parse_dates=["date"])
 
-    # 3. Align data
-    if len(fe) != len(meta):
-        st.warning("⚠️ Engineered and meta holdout lengths differ. Aligning by index.")
-        min_len = min(len(fe), len(meta))
-        fe = fe.iloc[:min_len].copy()
-        meta = meta.iloc[:min_len].copy()
+    # Align Data
+    min_len = min(len(fe), len(meta))
+    fe = fe.iloc[:min_len].copy()
+    meta = meta.iloc[:min_len].copy()
 
-    # 4. Prepare display dataframe
-    disp = pd.DataFrame(index=fe.index)
-    disp["date"] = meta["date"]
-    disp["region"] = meta["city_full"]
-    disp["year"] = disp["date"].dt.year
-    disp["month"] = disp["date"].dt.month
-    disp["actual_price"] = fe["price"]
+    # Prepare small display dataframe to save RAM
+    disp = pd.DataFrame({
+        "date": meta["date"],
+        "region": meta["city_full"],
+        "year": meta["date"].dt.year,
+        "month": meta["date"].dt.month,
+        "actual_price": fe["price"]
+    })
 
     return fe, disp
 
-fe_df, disp_df = load_data()
+# ============================
+# UI Setup
+# ============================
+st.set_page_config(page_title="Housing Prediction Dashboard", layout="wide")
 
-# Check if data loaded successfully
-if disp_df.empty:
+# Main Title
+st.title("🏠 Housing Price Prediction — Holdout Explorer")
+
+# Data loading with a single controlled spinner
+with st.spinner("🚀 Initializing application and downloading datasets from Supabase..."):
+    fe_df, disp_df = load_data()
+
+if fe_df is None or disp_df.empty:
+    st.error("❌ Critical Error: Data files could not be loaded. Please check Supabase Storage and Environment Variables.")
     st.stop()
 
 # ============================
-# UI
+# Sidebar/Filters
 # ============================
-st.set_page_config(page_title="Housing Prediction Dashboard", layout="wide")
-st.title("🏠 Housing Price Prediction — Holdout Explorer")
-
 years = sorted(disp_df["year"].unique())
 months = list(range(1, 13))
 regions = ["All"] + sorted(disp_df["region"].dropna().unique())
@@ -101,6 +100,9 @@ with col2:
 with col3:
     region = st.selectbox("Select Region", regions, index=0)
 
+# ============================
+# Execution logic
+# ============================
 if st.button("Show Predictions 🚀"):
     mask = (disp_df["year"] == year) & (disp_df["month"] == month)
     if region != "All":
@@ -109,79 +111,51 @@ if st.button("Show Predictions 🚀"):
     idx = disp_df.index[mask]
 
     if len(idx) == 0:
-        st.warning("No data found for these filters.")
+        st.warning(f"No data found for {year}-{month:02d} in {region}.")
     else:
         st.write(f"📅 Running predictions for **{year}-{month:02d}** | Region: **{region}**")
-
+        
         payload = fe_df.loc[idx].to_dict(orient="records")
 
         try:
-            resp = requests.post(API_URL, json=payload, timeout=60)
-            resp.raise_for_status()
-            out = resp.json()
+            with st.spinner("Calculating predictions via API..."):
+                resp = requests.post(API_URL, json=payload, timeout=60)
+                resp.raise_for_status()
+                out = resp.json()
+            
             preds = out.get("predictions", [])
             actuals = out.get("actuals", None)
 
+            # Build View
             view = disp_df.loc[idx, ["date", "region", "actual_price"]].copy()
             view = view.sort_values("date")
             view["prediction"] = pd.Series(preds, index=view.index).astype(float)
-
-            if actuals is not None and len(actuals) == len(view):
+            if actuals:
                 view["actual_price"] = pd.Series(actuals, index=view.index).astype(float)
 
             # Metrics
             mae = (view["prediction"] - view["actual_price"]).abs().mean()
             rmse = ((view["prediction"] - view["actual_price"]) ** 2).mean() ** 0.5
-            avg_pct_error = ((view["prediction"] - view["actual_price"]).abs() / view["actual_price"]).mean() * 100
+            
+            st.subheader("Results")
+            st.dataframe(view.reset_index(drop=True), use_container_width=True)
 
-            st.subheader("Predictions vs Actuals")
-            st.dataframe(
-                view[["date", "region", "actual_price", "prediction"]].reset_index(drop=True),
-                use_container_width=True
-            )
+            m1, m2 = st.columns(2)
+            m1.metric("MAE", f"${mae:,.0f}")
+            m2.metric("RMSE", f"${rmse:,.0f}")
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric("MAE", f"{mae:,.0f}")
-            with c2:
-                st.metric("RMSE", f"{rmse:,.0f}")
-            with c3:
-                st.metric("Avg % Error", f"{avg_pct_error:.2f}%")
-
-            # Yearly Trend
+            # Plot
             st.divider()
-            if region == "All":
-                yearly_data = disp_df[disp_df["year"] == year].copy()
-            else:
-                yearly_data = disp_df[(disp_df["year"] == year) & (disp_df["region"] == region)].copy()
+            # Minimal aggregation for chart
+            monthly_data = disp_df[disp_df["year"] == year].copy()
+            if region != "All":
+                monthly_data = monthly_data[monthly_data["region"] == region]
             
-            idx_yearly = yearly_data.index
-            payload_yearly = fe_df.loc[idx_yearly].to_dict(orient="records")
-            
-            resp_yearly = requests.post(API_URL, json=payload_yearly, timeout=60)
-            resp_yearly.raise_for_status()
-            preds_yearly = resp_yearly.json().get("predictions", [])
-            
-            yearly_data["prediction"] = pd.Series(preds_yearly, index=yearly_data.index).astype(float)
-            monthly_avg = yearly_data.groupby("month")[["actual_price", "prediction"]].mean().reset_index()
-
-            fig = px.line(
-                monthly_avg,
-                x="month",
-                y=["actual_price", "prediction"],
-                markers=True,
-                labels={"value": "Price", "month": "Month"},
-                title=f"Yearly Trend — {year}{'' if region=='All' else f' — {region}'}"
-            )
-            
-            fig.add_vrect(
-                x0=month - 0.5, x1=month + 0.5,
-                fillcolor="red", opacity=0.1, layer="below", line_width=0,
-            )
+            fig = px.line(monthly_data.groupby("month")[["actual_price"]].mean().reset_index(), 
+                         x="month", y="actual_price", markers=True, title=f"Price Trend {year}")
             st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
-            st.error(f"API call failed: {e}")
-            st.exception(e)
+            st.error(f"Prediction failed: {e}")
 else:
-    st.info("Choose filters and click **Show Predictions** to compute.")
+    st.info("Choose filters and click **Show Predictions** to begin.")
