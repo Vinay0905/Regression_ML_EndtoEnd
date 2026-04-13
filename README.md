@@ -1,236 +1,157 @@
-## Housing ML end2end Project
+# 🏡 Housing Regression MLE: End-to-End Machine Learning Ecosystem
 
-## Vinay's Project for complete understanding of workflows and working and complete deployment.
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
+[![Framework: FastAPI](https://img.shields.io/badge/Framework-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![Deployment: Cloud Run](https://img.shields.io/badge/Deployment-GCP%20Cloud%20Run-4285F4.svg)](https://cloud.google.com/run)
+[![Database: Supabase](https://img.shields.io/badge/Database-Supabase-3ECF8E.svg)](https://supabase.com/)
+[![ML Tracking: MLflow](https://img.shields.io/badge/ML--Tracking-MLflow-0194E2.svg)](https://mlflow.org/)
 
-## Project Overview
+> **Housing Regression MLE** is a professional-grade, production-ready machine learning system designed to predict real estate prices with high precision. It leverages a modern MLOps stack to manage the entire lifecycle from raw data ingestion to serverless deployment.
 
-Housing Regression MLE is an end-to-end machine learning pipeline for predicting housing prices using XGBoost. The project follows ML engineering best practices with modular pipelines, experiment tracking via MLflow, containerization, **cloud deployment on Google Cloud**, and comprehensive testing. The system includes both a REST API and a Streamlit dashboard for interactive predictions.
+---
 
-## Architecture
+## 🚀 Key Highlights
 
-The codebase is organized into distinct pipelines following the flow:
-`Load → Preprocess → Feature Engineering → Train → Tune → Evaluate → Inference → Serve`
+*   **State-of-the-Art Modeling**: Powered by **XGBoost** with **Bayesian Optimization** via **Optuna**.
+*   **Modern Package Management**: Uses `uv` for lightning-fast dependency resolution and environment isolation.
+*   **Professional MLOps**: Full experiment tracking with **MLflow** and model persistence in **Supabase Storage**.
+*   **Cloud-Native Architecture**: Fully containerized with **Docker** and deployed on **Google Cloud Run** for horizontal auto-scaling and "scale-to-zero" cost efficiency.
+*   **Interactive Analytics**: Includes a high-performance **FastAPI** backend and a sleek **Streamlit** interactive dashboard.
+*   **Anti-Leakage Engineering**: Strict chronological data splitting and encoder persistence to ensure real-world reliability.
 
-### Core Modules
+---
 
-- **`src/feature_pipeline/`**: Data loading, preprocessing, and feature engineering
+## 🏗️ System Architecture
 
-  - `load.py`: Time-aware data splitting (train <2020, eval 2020-21, holdout ≥2022)
-  - `preprocess.py`: City normalization, deduplication, outlier removal
-  - `feature_engineering.py`: Date features, frequency encoding (zipcode), target encoding (city_full)
+The project follows a modular pipeline architecture, ensuring each component is testable and maintainable.
 
-- **`src/training_pipeline/`**: Model training and hyperparameter optimization
+```mermaid
+graph TD
+    A[Raw Data] --> B[Feature Pipeline]
+    B --> C[Preprocessing / Normalization]
+    C --> D[Target & Frequency Encoding]
+    D --> E[Training Pipeline]
+    E --> F[Hyperparameter Tuning - Optuna]
+    F --> G[Experiment Logging - MLflow]
+    G --> H[Model Artifact Storage - Supabase]
+    H --> I[Inference Pipeline]
+    I --> J[FastAPI Service]
+    I --> K[Batch Job - Monthly]
+    J --> L[Streamlit Dashboard]
+```
 
-  - `train.py`: Baseline XGBoost training with configurable parameters
-  - `tune.py`: Optuna-based hyperparameter tuning with MLflow integration
-  - `eval.py`: Model evaluation and metrics calculation
+---
 
-- **`src/inference_pipeline/`**: Production inference
+## 📂 Project Structure
 
-  - `inference.py`: Applies same preprocessing/encoding transformations using saved encoders
+```text
+├── src/
+│   ├── feature_pipeline/    # Data loading, cleaning, & feature engineering
+│   ├── training_pipeline/   # XGBoost training, Optuna tuning, & MLflow logging
+│   ├── inference_pipeline/  # Real-time inference logic
+│   ├── batch/               # Scheduled monthly batch processing
+│   ├── api/                 # FastAPI REST service
+│   └── utils/               # Supabase & cloud helper clients
+├── app.py                   # Streamlit Frontend Dashboard
+├── notebooks/               # EDA & Prototyping
+├── tests/                   # Comprehensive Unit & Integration tests
+├── configs/                 # YAML-based environment configurations
+└── models/                  # Local cache for serialized models & encoders
+```
 
-- **`src/api/`**: FastAPI web service
-  - `main.py`: REST API with Supabase integration, health checks, and prediction endpoints
+---
 
-### Web Applications
+## 🛠️ Installation & Setup
 
-- **`app.py`**: Streamlit dashboard for interactive housing price predictions
-  - Real-time predictions via FastAPI integration
-  - Interactive filtering by year, month, and region
-  - Visualization of predictions vs actuals with metrics (MAE, RMSE, % Error)
-  - Yearly trend analysis with highlighted selected periods
-  - **Optimized for Cloud Run**: Uses lazy loading and caching for performance
+### 1. Prerequisites
+*   Python 3.11+
+*   [`uv`](https://github.com/astral-sh/uv) installed via `pip install uv`
 
-### Cloud Infrastructure & Deployment
-
-**Migrated from AWS to Google Cloud Run + Supabase Stack**
-
-- **Supabase**:
-  - **Storage**: Replaces S3 for storing models (`xgb_best_model.pkl`), encoders, and datasets.
-  - **Database**: Stores real-time prediction logs for monitoring.
-- **Google Cloud Run**: Serverless container hosting for both the API and Dashboard.
-  - **Scale-to-Zero**: auto-scaling to save costs.
-  - **Continuous Deployment**: Automated builds connected directly to GitHub.
-- **Docker**: Optimized multi-stage builds for fast startup times.
-
-#### Cloud Run Services:
-
-- **housing-api**: FastAPI backend (Autoscaling, Port 8000)
-- **housing-streamlit**: Streamlit dashboard (Autoscaling, Port 8501, 2GB Memory)
-
-### Data Leakage Prevention
-
-The project implements strict data leakage prevention:
-
-- Time-based splits (not random)
-- Encoders fitted only on training data
-- Leakage-prone columns dropped before training
-- Schema alignment enforced between train/eval/inference
-
-## Common Commands
-
-### Environment Setup
-
+### 2. Quick Setup
 ```bash
-# Install dependencies using uv
+# Clone the repository
+git clone https://github.com/Vinay0905/Regression_ML_EndtoEnd.git
+cd Regression_ML_EndtoEnd
+
+# Sync dependencies and create venv
 uv sync
+
+# Activate environment
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate # Unix
 ```
 
-### Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test modules
-pytest tests/test_features.py
-pytest tests/test_training.py
-pytest tests/test_inference.py
-
-# Run with verbose output
-pytest -v
+### 3. Environment Variables
+Create a `.env` file in the root directory:
+```env
+SUPABASE_URL=your_project_url
+SUPABASE_KEY=your_anon_key
+MLFLOW_TRACKING_URI=http://localhost:5000
 ```
 
-### Data Pipeline
+---
 
+## 🧪 Operational Workflow
+
+### **Feature Engineering**
 ```bash
-# 1. Load and split raw data
-python src/feature_pipeline/load.py
-
-# 2. Preprocess splits
+python -m src.feature_pipeline.load
 python -m src.feature_pipeline.preprocess
-
-# 3. Feature engineering
 python -m src.feature_pipeline.feature_engineering
 ```
 
-### Training Pipeline
-
+### **Model Development**
 ```bash
-# Train baseline model
-python src/training_pipeline/train.py
-
-# Hyperparameter tuning with MLflow
+# Tune hyperparameters with Optuna and log to MLflow
 python src/training_pipeline/tune.py
 
-# Model evaluation
+# Evaluate the best model
 python src/training_pipeline/eval.py
 ```
 
-### Inference
-
+### **Deployment & API**
 ```bash
-# Single inference
-python src/inference_pipeline/inference.py --input data/raw/holdout.csv --output predictions.csv
-```
-
-### API Service
-
-```bash
-# Start FastAPI server locally
+# Start the FastAPI server
 uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+# Launch the Streamlit Dashboard
+streamlit run app.py
 ```
 
-### Streamlit Dashboard
+---
+
+## 🐳 Containerization
+
+Fully optimized for production environments using multi-stage Docker builds.
 
 ```bash
-# Start Streamlit dashboard locally
-streamlit run app.py --server.port 8501 --server.address 0.0.0.0
-```
+# Build & Run API
+docker build -t housing-api .
+docker run -p 8000:8000 housing-api
 
-### Docker
-
-```bash
-# Build API container
-docker build -t housing-regression .
-
-# Build Streamlit container
+# Build & Run Dashboard
 docker build -t housing-streamlit -f Dockerfile.streamlit .
-
-# Run API container
-docker run -p 8000:8000 housing-regression
-
-# Run Streamlit container
 docker run -p 8501:8501 housing-streamlit
 ```
 
-### MLflow Tracking
+---
 
-```bash
-# Start MLflow UI (view experiments)
-mlflow ui
-```
+## 📈 Quality Assurance
 
-## Key Design Patterns
+We maintain high confidence in our deployments through rigorous testing.
 
-### Pipeline Modularity
+*   **Unit Testing**: `pytest` covers feature transforms and model prediction logic.
+*   **Data Validation**: Integrated with **Great Expectations** for schema enforcement.
+*   **Model Monitoring**: Planned integration with **Evidently** for drift detection.
 
-Each pipeline component can be run independently with consistent interfaces. All modules accept configurable input/output paths for testing isolation.
+---
 
-### Cloud-Native Architecture
+## 🏷️ Technical Theory
+For a deep dive into the "Why" behind our technical decisions (XGBoost vs. Deep Learning, Regression vs. Classification, etc.) and to prepare for interviews, please refer to our **[Introduction & Theory Document](./Introduction.md)**.
 
-- **Supabase-First Storage**: Models and data automatically sync from Supabase buckets
-- **Containerized Services**: Both API and dashboard run in Docker containers
-- **Auto-scaling Infrastructure**: Google Cloud Run provides serverless container scaling
-- **Environment-based Configuration**: Separate configs for local development and production
+---
 
-### Encoder Persistence
+## 👤 Author
+**Vinay** - [GitHub](https://github.com/Vinay0905)
 
-Frequency and target encoders are saved as pickle files during training and loaded during inference to ensure consistent transformations.
-
-### Configuration Management
-
-Model parameters, file paths, and pipeline settings use sensible defaults but can be overridden through function parameters or environment variables. Production deployments use Cloud Run environment variables.
-
-### Testing Strategy
-
-- Unit tests for individual pipeline components
-- Integration tests for end-to-end pipeline flows
-- Smoke tests for inference pipeline
-- All tests use temporary directories to avoid touching production data
-
-## Dependencies
-
-Key production dependencies (see `pyproject.toml`):
-
-- **ML/Data**: `xgboost==3.0.4`, `scikit-learn`, `pandas==2.1.1`, `numpy==1.26.4`
-- **API**: `fastapi`, `uvicorn`
-- **Dashboard**: `streamlit`, `plotly`
-- **Cloud**: `supabase` (Storage & DB)
-- **Experimentation**: `mlflow`, `optuna`
-- **Quality**: `great-expectations`, `evidently`
-
-## File Structure Notes
-
-- **`data/`**: Raw, processed, and prediction data (time-structured, Supabase-synced)
-- **`models/`**: Trained models and encoders (pkl files, Supabase-synced)
-- **`src/utils/supabase_client.py`**: Centralized authentication logic
-- **`mlruns/`**: MLflow experiment tracking data
-- **`configs/`**: YAML configuration files
-- **`notebooks/`**: Jupyter notebooks for EDA and experimentation
-- **`08_Supabase_push_dataset.ipynb`**: Migration script for uploading assets
-- **`tests/`**: Comprehensive test suite with sample data
-
-## Upcoming Features (Planned)
-
-### 1. API Security
-
-- Implement API Key authentication to protect the endpoint from unauthorized access.
-- Store keys securely in Cloud Run Secrets (`API_AUTH_TOKEN`).
-
-### 2. Robust Model Loading ("Bake-in")
-
-- Optimize Docker builds to download model artifacts and encoders during the build phase.
-- Improves startup time and eliminates "Cold Start" download latency.
-
-### 3. Drift Detection & Monitoring
-
-- Integrate **Evidently** to compare incoming production data against training baselines.
-- Schedule weekly drift reports to detect changes in housing market patterns.
-- Alerting system for model degradation.
-
-### 4. Input Validation (Pydantic)
-
-- Implement strict Pydantic schemas for the FastAPI input.
-- Provide descriptive `422 Validation Error` responses for missing or incorrect fields (e.g., missing `city` or invalid `zipcode`).
-- Catch errors at the API layer before they reach the inference pipeline.
+*This project was built to demonstrate complete mastery of the Machine Learning Lifecycle from development to cloud-native serving.*
